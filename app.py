@@ -206,6 +206,8 @@ def open_position(direction: str):
 # ═══════════════════════════════════════════════════════
 # 🌐  WEBHOOK ENDPOINT (sem chodí signály z TradingView)
 # ═══════════════════════════════════════════════════════
+
+
 @app.post("/webhook")
 async def webhook(request: Request):
     """
@@ -234,4 +236,3 @@ async def webhook(request: Request):
         return {"status": "ok", "action": desired_direction, "message": f"Pozice {desired_direction} byla zpracována."}
     else:
         raise HTTPException(status_code=500, detail="Chyba při provádění příkazu na Capital.com")
-{"detail":"Method Not Allowed"}
