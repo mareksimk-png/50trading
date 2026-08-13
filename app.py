@@ -206,7 +206,6 @@ def open_position(direction: str):
 # ═══════════════════════════════════════════════════════
 # 🌐  WEBHOOK ENDPOINT (sem chodí signály z TradingView)
 # ═══════════════════════════════════════════════════════
-
 @app.post("/webhook")
 async def webhook(request: Request):
     """
@@ -219,65 +218,20 @@ async def webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Neplatný JSON")
 
-    action = data.get("action", "").upper()
-    if action not in ("BUY", "SELL"):
+    action = str(data.get("action", "")).upper()
+    if action not in ["BUY", "SELL"]:
         raise HTTPException(status_code=400, detail="Akce musí být BUY nebo SELL")
 
-    logger.info(f"📩 Přijat signál: {action}")
+    logging.info(f"📩 Přijat webhook akce: {action}")
 
-    # 1) Zjistit aktuální pozici
-    current = get_open_position()
+    # Nastavení požadovaného směru (oprava proměnné desired_direction)
+    desired_direction = action
 
-    # 2) Pokud máme otevřenou pozici
-    if current:
-        current_direction = current.get("position", {}).get("direction")  # "BUY" nebo "SELL"
-        deal_id = current.get("position", {}).get("dealId")
-        desired_direction = "BUY" if action == "BUY" else "SELL"
-
-        # Pokud je to opačná pozice, zavřít ji
-        if current_direction != desired_direction:
-            logger.info(f"🔄 Mám opačnou pozici ({current_direction}). Převracím...")
-            close_position(deal_id)
-        else:
-            # Už máme správnou pozici, nic nedělat
-            logger.info(f"ℹ️ Již držím {current_direction}. Nic se nemění.")
-            return {"status": "ok", "message": "Pozice již správně otevřena."}
-
-    # 3) Otevřít novou pozici
+    # Zavřeme opačné pozice a otevřeme novou
     success = open_position(desired_direction)
 
     if success:
-        return {"status": "ok", "message": f"Signál {action} vykonán."}
+        return {"status": "ok", "action": desired_direction, "message": f"Pozice {desired_direction} byla zpracována."}
     else:
-        raise HTTPException(status_code=500, detail="Nepodařilo se otevřít pozici")
-
-
-@app.get("/")
-async def health_check():
-    """Test – otevři v prohlížeči."""
-    return {
-        "status": "alive",
-        "bot": "TradingView Capital.com Bot",
-        "mode": "DEMO" if USE_DEMO else "LIVE",
-        "epic": EPIC,
-        "size": POSITION_SIZE,
-    }
-
-
-@app.get("/test-login")
-async def test_login():
-    """Otestuj přihlášení k Capital.com."""
-    success = capital.login()
-    if success:
-        return {"status": "ok", "message": "Přihlášení k Capital.com funguje!"}
-    else:
-        return {"status": "error", "message": "Přihlášení selhalo. Zkontroluj API klíč, heslo a email."}
-
-
-# ═══════════════════════════════════════════════════════
-# 🚀  Spuštění
-# ═══════════════════════════════════════════════════════
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+        raise HTTPException(status_code=500, detail="Chyba při provádění příkazu na Capital.com")
+{"detail":"Method Not Allowed"}
