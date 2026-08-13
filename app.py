@@ -18,7 +18,7 @@ CAPITAL_API_KEY = os.environ.get("CAPITAL_API_KEY", "")
 CAPITAL_API_PASSWORD = os.environ.get("CAPITAL_API_PASSWORD", "")
 USE_DEMO = os.environ.get("USE_DEMO", "True").lower() in ("true", "1", "yes")
 EPIC = os.environ.get("EPIC", "CC.D.XAUUSD.CFD.IP")
-POSITION_SIZE = float(os.environ.get("POSITION_SIZE", "0.5"))
+POSITION_SIZE = float(os.environ.get("POSITION_SIZE", "1.0"))
 
 # ═══════════════════════════════════════════════════════
 # 🔧 Inicializace
@@ -117,9 +117,26 @@ def close_position(deal_id: str):
 @with_relogin
 def open_position(direction: str):
     logger.info(f"📈 Otevírám {direction} pozici na {EPIC} ({POSITION_SIZE} lotů)...")
-    payload = {"epic": EPIC, "direction": direction, "size": POSITION_SIZE, "orderType": "MARKET"}
-    resp = requests.post(f"{BASE_URL}/api/v1/positions", json=payload, headers=capital.get_headers(), timeout=15)
-    resp.raise_for_status()
+    
+    # OPRAVA: Přidány povinné/vhodné parametry pro Capital.com
+    payload = {
+        "epic": EPIC,
+        "direction": direction,
+        "size": POSITION_SIZE,
+        "orderType": "MARKET",
+        "currencyCode": "USD",      # Důležité pro CFD
+        "forceOpen": True,          # Důležité pro CFD
+        "guaranteedStop": False,
+    }
+
+    url = f"{BASE_URL}/api/v1/positions"
+    resp = requests.post(url, json=payload, headers=capital.get_headers(), timeout=15)
+    
+    # DIAGNOSTIKA: Vždy vypiš odpověď, i když je chyba
+    if resp.status_code != 200:
+        logger.error(f"❌ Capital.com vrátil chybu {resp.status_code}: {resp.text}")
+        resp.raise_for_status()
+    
     logger.info(f"✅ Pozice otevřena! Deal ref: {resp.json().get('dealReference', 'N/A')}")
     return True
 
@@ -133,23 +150,34 @@ async def webhook(request: Request):
         data = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Neplatný JSON")
+    
     action = data.get("action", "").upper()
     if action not in ("BUY", "SELL"):
         raise HTTPException(status_code=400, detail="Akce musí být BUY nebo SELL")
+    
     logger.info(f"📩 Signál: {action}")
-    current = get_open_position()
-    desired = "BUY" if action == "BUY" else "SELL"
-    if current:
-        cd = current.get("position", {}).get("direction")
-        did = current.get("position", {}).get("dealId")
-        if cd != desired:
-            logger.info(f"🔄 Převracím z {cd} na {desired}...")
-            close_position(did)
-        else:
-            logger.info(f"ℹ️ Již držím {cd}.")
-            return {"status": "ok", "message": "Pozice již otevřena."}
-    open_position(desired)
-    return {"status": "ok", "message": f"Signál {action} vykonán."}
+    
+    try:
+        current = get_open_position()
+        desired = "BUY" if action == "BUY" else "SELL"
+        
+        if current:
+            cd = current.get("position", {}).get("direction")
+            did = current.get("position", {}).get("dealId")
+            if cd != desired:
+                logger.info(f"🔄 Převracím z {cd} na {desired}...")
+                close_position(did)
+            else:
+                logger.info(f"ℹ️ Již držím {cd}.")
+                return {"status": "ok", "message": "Pozice již otevřena."}
+        
+        open_position(desired)
+        return {"status": "ok", "message": f"Signál {action} vykonán."}
+        
+    except Exception as e:
+        logger.error(f"❌ CHYBA VE WEBHOOKU: {e}")
+        # Vrátíme 200, aby TradingView neopakovalo webhook zbytečně
+        return {"status": "error", "message": str(e)}
 
 @app.get("/")
 async def health_check():
